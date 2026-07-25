@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getQwenClient, QWEN_MODEL_NAME } from '@/lib/qwen';
+import { getGeminiClient, GEMINI_MODEL_NAME } from '@/lib/gemini';
 
 export async function POST(req: NextRequest) {
   try {
@@ -24,11 +24,11 @@ export async function POST(req: NextRequest) {
       }
     };
 
-    const openai = getQwenClient();
+    const openai = getGeminiClient();
     if (openai) {
       try {
         const chatCompletion = await openai.chat.completions.create({
-          model: QWEN_MODEL_NAME,
+          model: GEMINI_MODEL_NAME,
           messages: [
             {
               role: 'system',
@@ -95,11 +95,11 @@ Rules:
           };
         }
       } catch (apiError) {
-        console.error('Qwen API completion failed. Using fallback:', apiError);
+        console.error('Gemini completion failed. Using fallback:', apiError);
         // keep fallback
       }
     } else {
-      console.warn('Qwen API client not initialized. Using fallback mode.');
+      console.warn('Gemini client not initialized. Using fallback mode.');
     }
 
     return NextResponse.json(briefingResult);

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Branch, PrepRecommendation, ShortageAlert } from '@/types/kitchen';
 import { MENU_ITEMS } from '@/data/menuItems';
-import { getGmiClient, GMI_MODEL_NAME } from '@/lib/gmi';
+import { getGeminiClient, GEMINI_MODEL_NAME } from '@/lib/gemini';
 import {
   calculateNetworkStock,
   calculateTotalRequests,
@@ -123,12 +123,12 @@ export async function POST(req: NextRequest) {
       }
     };
 
-    // 4. Send data to GMI Cloud if client is initialized
-    const openai = getGmiClient();
+    // 4. Send data to Gemini if client is initialized
+    const openai = getGeminiClient();
     if (openai) {
       try {
         const chatCompletion = await openai.chat.completions.create({
-          model: GMI_MODEL_NAME,
+          model: GEMINI_MODEL_NAME,
           messages: [
             {
               role: 'system',
@@ -190,11 +190,11 @@ Important rules:
           };
         }
       } catch (apiError) {
-        console.error('GMI Cloud completion failed. Using fallback:', apiError);
+        console.error('Gemini completion failed. Using fallback:', apiError);
         // keep fallback
       }
     } else {
-      console.warn('GMI Cloud environment missing or invalid. Using fallback mode.');
+      console.warn('Gemini environment missing or invalid. Using fallback mode.');
     }
 
     return NextResponse.json({
