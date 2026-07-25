@@ -31,6 +31,28 @@ interface AiAnalysisResult {
   };
 }
 
+interface JapaneseBriefing {
+  japaneseTitle: string;
+  japaneseSummary: string;
+  priorityInstructions: {
+    priority: number;
+    menuItem: string;
+    instructionJapanese: string;
+  }[];
+  branchNotes: {
+    branch: string;
+    noteJapanese: string;
+  }[];
+  safetyReminderJapanese: string;
+  englishSummary: string;
+}
+
+interface QwenBriefingResult {
+  success: boolean;
+  fallback: boolean;
+  briefing: JapaneseBriefing;
+}
+
 export default function Dashboard() {
   // Navigation & Step control
   const [activeStep, setActiveStep] = useState<1 | 2 | 3 | 4>(1);
@@ -44,6 +66,10 @@ export default function Dashboard() {
   const [prepItems, setPrepItems] = useState<PrepRecommendation[]>([]);
   const [alerts, setAlerts] = useState<ShortageAlert[]>([]);
   const [aiAnalysisData, setAiAnalysisData] = useState<AiAnalysisResult | null>(null);
+
+  // Tab 3 state: Qwen Japanese Briefing
+  const [qwenBriefing, setQwenBriefing] = useState<QwenBriefingResult | null>(null);
+  const [loadingBriefing, setLoadingBriefing] = useState<boolean>(false);
 
   // Tab 3 state: prepared checkbox tracking (key: branchId-menuItemId, value: boolean)
   const [preparedItems, setPreparedItems] = useState<Record<string, boolean>>({});
@@ -72,6 +98,8 @@ export default function Dashboard() {
     setPrepItems([]);
     setAlerts([]);
     setAiAnalysisData(null);
+    setQwenBriefing(null);
+    setLoadingBriefing(false);
     setPreparedItems({});
     setGlobalPreparedItems({});
     setIncludedIngredients({});
@@ -172,6 +200,7 @@ export default function Dashboard() {
   // Handle Approved Prep editing in Tab 2
   const handleApprovedPrepEdit = (menuItemId: string, rawVal: string) => {
     const cleanVal = validateQuantityInput(rawVal);
+    setQwenBriefing(null); // Clear outdated briefing on changes
     setPrepItems((prev) =>
       prev.map((item) => {
         if (item.menuItemId === menuItemId) {
@@ -188,6 +217,66 @@ export default function Dashboard() {
     await new Promise((resolve) => setTimeout(resolve, 600));
     setLoadingStep(false);
     setActiveStep(3);
+  };
+
+  // Tab 3: Qwen Japanese Briefing API Call
+  const handleGenerateJapaneseBriefing = async () => {
+    setLoadingBriefing(true);
+
+    const approvedPrepPayload = prepItems.map((p) => {
+      const mItem = MENU_ITEMS.find((m) => m.id === p.menuItemId);
+      return {
+        menuItem: mItem?.name || p.menuItemId,
+        approvedQuantity: p.approvedPrep,
+        unit: mItem?.unit || 'kg',
+      };
+    });
+
+    const branchAllocationsPayload = branches.map((b) => ({
+      branch: b.name,
+      items: b.inventory.map((inv) => {
+        const item = MENU_ITEMS.find((m) => m.id === inv.menuItemId);
+        const approvedPrep = prepItems.find((p) => p.menuItemId === inv.menuItemId)?.approvedPrep || 0;
+        const totalRequested = prepItems.find((p) => p.menuItemId === inv.menuItemId)?.totalRequested || 0;
+        const allocation = calculateBranchAllocations(inv.requestedQuantity, totalRequested, approvedPrep);
+        return {
+          menuItem: item?.name || inv.menuItemId,
+          allocatedQuantity: allocation,
+          unit: item?.unit || 'kg',
+        };
+      }),
+    }));
+
+    const priorityItemsPayload = aiAnalysisData?.analysis.priorityItems.map((p) => ({
+      menuItem: p.menuItem,
+      urgency: p.urgency,
+    })) || [];
+
+    try {
+      const response = await fetch('/api/japanese-briefing', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          approvedPrep: approvedPrepPayload,
+          branchAllocations: branchAllocationsPayload,
+          priorityItems: priorityItemsPayload,
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setQwenBriefing(data);
+      } else {
+        alert('Failed to generate Japanese briefing sheets.');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Error connecting to the Japanese briefing endpoint.');
+    } finally {
+      setLoadingBriefing(false);
+    }
   };
 
   // Tab 3 -> Tab 4 transition
@@ -404,7 +493,7 @@ export default function Dashboard() {
 
         <div className="p-6 border-t border-slate-800 flex flex-col gap-4 text-xs text-slate-500">
           <div>
-            KitchenSync v2.1.0<br />
+            KitchenSync v2.2.0<br />
             Tokyo Operations Center
           </div>
           <button
@@ -1043,6 +1132,127 @@ export default function Dashboard() {
                   </tbody>
                 </table>
               </div>
+            </div>
+
+            {/* QWEN JAPANESE KITCHEN BRIEFING CARD */}
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-6">
+              <div className="flex flex-col sm:flex-row justify-between sm:items-center border-b border-slate-100 pb-3 gap-2">
+                <div className="flex items-center gap-2">
+                  <h3 className="font-bold text-slate-800 text-base">
+                    Japanese Kitchen Briefing <span className="text-slate-400 text-xs font-medium font-sans">/ 日本語キッチン指示書</span>
+                  </h3>
+                  <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider bg-slate-50 border border-slate-200/50 px-2 py-0.5 rounded">
+                    Powered by Qwen Cloud
+                  </span>
+                </div>
+                {!loadingBriefing && !qwenBriefing && (
+                  <button
+                    onClick={handleGenerateJapaneseBriefing}
+                    className="bg-slate-800 hover:bg-slate-900 text-white font-medium px-4 py-2 rounded-lg text-xs transition-colors shrink-0"
+                  >
+                    Generate Japanese Briefing
+                  </button>
+                )}
+                {qwenBriefing && (
+                  <button
+                    onClick={handleGenerateJapaneseBriefing}
+                    className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 font-medium px-4 py-2 rounded-lg text-xs transition-colors shrink-0"
+                  >
+                    Regenerate Briefing
+                  </button>
+                )}
+              </div>
+
+              {/* Loading State */}
+              {loadingBriefing && (
+                <div className="flex flex-col items-center justify-center py-6 text-center">
+                  <svg className="animate-spin h-6 w-6 text-slate-800 mb-2" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  </svg>
+                  <p className="text-slate-500 text-xs font-medium">Qwen is preparing the kitchen briefing...</p>
+                </div>
+              )}
+
+              {/* Fallback Banner */}
+              {qwenBriefing && qwenBriefing.fallback && (
+                <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-amber-800 text-xs font-medium flex items-center gap-3">
+                  <svg className="w-4 h-4 text-amber-600 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                  <span>Japanese briefing temporarily unavailable. Branch allocations remain available.</span>
+                </div>
+              )}
+
+              {/* Not Generated Placeholder */}
+              {!loadingBriefing && !qwenBriefing && (
+                <div className="text-center py-6 text-slate-400 text-xs">
+                  <p>Japanese operational instructions sheets have not been prepared yet.</p>
+                  <p className="mt-1">Click the button above to generate the briefing sheets for Roppongi Central Kitchen crew.</p>
+                </div>
+              )}
+
+              {/* Render Briefing Contents */}
+              {!loadingBriefing && qwenBriefing && (
+                <div className="space-y-4">
+                  <div>
+                    <h4 className="text-xs font-bold text-slate-800 border-l-2 border-slate-800 pl-2 uppercase tracking-wide">
+                      {qwenBriefing.briefing.japaneseTitle}
+                    </h4>
+                    <p className="text-sm text-slate-700 leading-relaxed mt-2 pl-2">
+                      {qwenBriefing.briefing.japaneseSummary}
+                    </p>
+                  </div>
+
+                  {qwenBriefing.briefing.priorityInstructions && qwenBriefing.briefing.priorityInstructions.length > 0 && (
+                    <div className="pl-2">
+                      <h5 className="text-xs font-bold text-slate-400 uppercase tracking-wider">仕込み優先度指示 (Priority Preparation)</h5>
+                      <ul className="mt-2 space-y-2">
+                        {qwenBriefing.briefing.priorityInstructions.map((pInst, index) => (
+                          <li key={index} className="text-xs text-slate-700 bg-slate-50 rounded border border-slate-100 p-2.5 flex items-start gap-2">
+                            <span className="bg-emerald-600 text-white font-bold px-1.5 py-0.5 rounded text-[10px] shrink-0 font-mono">
+                              #{pInst.priority}
+                            </span>
+                            <div>
+                              <strong className="text-slate-800 block font-semibold">{pInst.menuItem}</strong>
+                              <span className="text-slate-600 mt-0.5 block leading-relaxed">{pInst.instructionJapanese}</span>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {qwenBriefing.briefing.branchNotes && qwenBriefing.briefing.branchNotes.length > 0 && (
+                    <div className="pl-2">
+                      <h5 className="text-xs font-bold text-slate-400 uppercase tracking-wider">店舗別アロケーション注意点 (Branch Notes)</h5>
+                      <ul className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {qwenBriefing.briefing.branchNotes.map((note, index) => (
+                          <li key={index} className="text-xs text-slate-700 bg-slate-50/50 rounded border border-slate-100/70 p-2.5">
+                            <span className="font-bold text-slate-800 block border-b border-slate-200 pb-1 mb-1">{note.branch}</span>
+                            <span className="text-slate-600 leading-relaxed block">{note.noteJapanese}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  <div className="bg-emerald-50/50 border border-emerald-100 rounded-lg p-3 text-xs text-emerald-800 pl-4">
+                    <span className="font-bold block mb-1">衛生安全および注意事項 (Safety Reminder):</span>
+                    {qwenBriefing.briefing.safetyReminderJapanese}
+                  </div>
+
+                  {/* Collapsible English Summary Translation */}
+                  <details className="mt-4 bg-slate-50 border border-slate-200 rounded-lg p-4 cursor-pointer select-none">
+                    <summary className="text-xs font-bold text-slate-700 uppercase tracking-wider focus:outline-none">
+                      English Summary Translation
+                    </summary>
+                    <p className="text-sm text-slate-600 leading-relaxed mt-2 pl-1 select-text cursor-text">
+                      {qwenBriefing.briefing.englishSummary}
+                    </p>
+                  </details>
+                </div>
+              )}
             </div>
 
             {/* Individual Branch Allocation Details */}
