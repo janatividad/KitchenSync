@@ -45,3 +45,8 @@ yarn-error.log*
 # TypeScript
 *.tsbuildinfo
 next-env.d.ts
+
+#GMI
+GMI_API_KEY=replace_with_your_actual_gmi_key
+GMI_BASE_URL=https://api.gmi-serving.com/v1
+GMI_MODEL=replace_with_the_exact_model_name
